@@ -1,0 +1,1851 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#05040a"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="Séraphiel"/>
+  <meta name="description" content="Horoscope personnalisé, tarot, numérologie et oracle mystique"/>
+  <link rel="manifest" href="manifest.json"/>
+  <title>Séraphiel — Oracle des Étoiles</title>
+  <style>
+    * { touch-action: manipulation; box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: #05040a; height: 100%; }
+    body { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+    #root { min-height: 100vh; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- React + Babel CDN (pas besoin de npm) -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+const GOOGLE_FONTS = `
+@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Cinzel:wght@400;500;600&display=swap');
+`;
+
+const ZODIAC_SIGNS = [
+  { name: "Bélier", dates: "21 mars – 19 avril", symbol: "♈", element: "Feu" },
+  { name: "Taureau", dates: "20 avril – 20 mai", symbol: "♉", element: "Terre" },
+  { name: "Gémeaux", dates: "21 mai – 20 juin", symbol: "♊", element: "Air" },
+  { name: "Cancer", dates: "21 juin – 22 juillet", symbol: "♋", element: "Eau" },
+  { name: "Lion", dates: "23 juillet – 22 août", symbol: "♌", element: "Feu" },
+  { name: "Vierge", dates: "23 août – 22 septembre", symbol: "♍", element: "Terre" },
+  { name: "Balance", dates: "23 septembre – 22 octobre", symbol: "♎", element: "Air" },
+  { name: "Scorpion", dates: "23 octobre – 21 novembre", symbol: "♏", element: "Eau" },
+  { name: "Sagittaire", dates: "22 novembre – 21 décembre", symbol: "♐", element: "Feu" },
+  { name: "Capricorne", dates: "22 décembre – 19 janvier", symbol: "♑", element: "Terre" },
+  { name: "Verseau", dates: "20 janvier – 18 février", symbol: "♒", element: "Air" },
+  { name: "Poissons", dates: "19 février – 20 mars", symbol: "♓", element: "Eau" },
+];
+
+
+// ─── SIGNE LUNAIRE (cycle synodique ~29.5j) ───────────────────────────────────
+function getMoonSign(day, month, year) {
+  // Référence : Lune en Bélier le 1er Jan 2000, cycle ~27.32j sidéral
+  const ref = new Date(2000, 0, 1);
+  const date = new Date(year, month - 1, day);
+  const diffDays = (date - ref) / (1000 * 60 * 60 * 24);
+  const moonCycle = 27.321661;
+  const moonIndex = ((diffDays % (moonCycle * 12)) / moonCycle);
+  const idx = Math.floor(((moonIndex % 12) + 12) % 12);
+  return ZODIAC_SIGNS[idx];
+}
+
+// ─── ASCENDANT (approximatif selon heure et mois) ─────────────────────────────
+function getAscendant(day, month, hour, minute, city) {
+  // Approximation : l'ascendant change de signe toutes les ~2h
+  // Base : calcul simplifié sans coordonnées GPS exactes
+  const totalMinutes = hour * 60 + minute;
+  // Décalage selon le mois (le soleil se lève plus tôt en été)
+  const monthOffset = [0,1,2,3,2,1,0,-1,-2,-3,-2,-1][month - 1];
+  const adjustedMinutes = (totalMinutes + monthOffset * 30 + 1440) % 1440;
+  // Chaque signe dure ~2h = 120 minutes
+  const baseSign = Math.floor(adjustedMinutes / 120);
+  // Décalage selon le signe solaire
+  const solarOffset = [0,2,3,4,5,6,7,8,9,10,11,1].indexOf(
+    ZODIAC_SIGNS.findIndex(z => z === getZodiac(day, month))
+  );
+  const idx = ((baseSign + solarOffset) % 12 + 12) % 12;
+  return ZODIAC_SIGNS[idx];
+}
+
+function getZodiac(day, month) {
+  const m = parseInt(month), d = parseInt(day);
+  if ((m === 3 && d >= 21) || (m === 4 && d <= 19)) return ZODIAC_SIGNS[0];
+  if ((m === 4 && d >= 20) || (m === 5 && d <= 20)) return ZODIAC_SIGNS[1];
+  if ((m === 5 && d >= 21) || (m === 6 && d <= 20)) return ZODIAC_SIGNS[2];
+  if ((m === 6 && d >= 21) || (m === 7 && d <= 22)) return ZODIAC_SIGNS[3];
+  if ((m === 7 && d >= 23) || (m === 8 && d <= 22)) return ZODIAC_SIGNS[4];
+  if ((m === 8 && d >= 23) || (m === 9 && d <= 22)) return ZODIAC_SIGNS[5];
+  if ((m === 9 && d >= 23) || (m === 10 && d <= 22)) return ZODIAC_SIGNS[6];
+  if ((m === 10 && d >= 23) || (m === 11 && d <= 21)) return ZODIAC_SIGNS[7];
+  if ((m === 11 && d >= 22) || (m === 12 && d <= 21)) return ZODIAC_SIGNS[8];
+  if ((m === 12 && d >= 22) || (m === 1 && d <= 19)) return ZODIAC_SIGNS[9];
+  if ((m === 1 && d >= 20) || (m === 2 && d <= 18)) return ZODIAC_SIGNS[10];
+  return ZODIAC_SIGNS[11];
+}
+
+function getNumerology(birthdate) {
+  const digits = birthdate.replace(/-/g, "").split("").map(Number);
+  let sum = digits.reduce((a, b) => a + b, 0);
+  while (sum > 9 && sum !== 11 && sum !== 22 && sum !== 33) {
+    sum = sum.toString().split("").map(Number).reduce((a, b) => a + b, 0);
+  }
+  return sum;
+}
+
+const NUMEROLOGY_MEANINGS = {
+  1: "Leader, pionnier, indépendant",
+  2: "Diplomate, sensible, intuitif",
+  3: "Créatif, expressif, joyeux",
+  4: "Stable, travailleur, organisé",
+  5: "Libre, aventurier, changeant",
+  6: "Protecteur, aimant, harmonieux",
+  7: "Mystique, philosophe, chercheur",
+  8: "Puissant, ambitieux, matérialiste",
+  9: "Humaniste, idéaliste, sage",
+  11: "Maître intuitif, illuminé",
+  22: "Maître bâtisseur, visionnaire",
+  33: "Maître enseignant, altruiste",
+};
+
+// ─── TAROT DECK ───────────────────────────────────────────────────────────────
+const TAROT_DECK = [
+  { name: "Le Mat", number: "0", symbol: "🌟", color: "#e8c97a", shadow: "rgba(232,201,122,0.4)", keywords: "liberté, spontanéité, nouveau départ", element: "Air", arcane: "Majeur" },
+  { name: "Le Bateleur", number: "I", symbol: "✦", color: "#a07fd4", shadow: "rgba(160,127,212,0.4)", keywords: "volonté, créativité, maîtrise", element: "Feu", arcane: "Majeur" },
+  { name: "La Papesse", number: "II", symbol: "☽", color: "#7ba7d4", shadow: "rgba(123,167,212,0.4)", keywords: "intuition, mystère, connaissance", element: "Eau", arcane: "Majeur" },
+  { name: "L'Impératrice", number: "III", symbol: "♀", color: "#7dc47a", shadow: "rgba(125,196,122,0.4)", keywords: "fertilité, abondance, nature", element: "Terre", arcane: "Majeur" },
+  { name: "L'Empereur", number: "IV", symbol: "♦", color: "#d4874a", shadow: "rgba(212,135,74,0.4)", keywords: "autorité, structure, stabilité", element: "Feu", arcane: "Majeur" },
+  { name: "Le Pape", number: "V", symbol: "✝", color: "#c9a84c", shadow: "rgba(201,168,76,0.4)", keywords: "tradition, sagesse, guidance", element: "Terre", arcane: "Majeur" },
+  { name: "L'Amoureux", number: "VI", symbol: "♡", color: "#d47a9a", shadow: "rgba(212,122,154,0.4)", keywords: "choix, amour, harmonie", element: "Air", arcane: "Majeur" },
+  { name: "Le Chariot", number: "VII", symbol: "⚡", color: "#7ab4d4", shadow: "rgba(122,180,212,0.4)", keywords: "victoire, maîtrise, mouvement", element: "Eau", arcane: "Majeur" },
+  { name: "La Justice", number: "VIII", symbol: "⚖", color: "#c9a84c", shadow: "rgba(201,168,76,0.4)", keywords: "équilibre, vérité, karma", element: "Air", arcane: "Majeur" },
+  { name: "L'Ermite", number: "IX", symbol: "🕯", color: "#9b90b8", shadow: "rgba(155,144,184,0.4)", keywords: "solitude, sagesse intérieure, quête", element: "Terre", arcane: "Majeur" },
+  { name: "La Roue", number: "X", symbol: "☸", color: "#d4c47a", shadow: "rgba(212,196,122,0.4)", keywords: "destin, cycles, chance", element: "Feu", arcane: "Majeur" },
+  { name: "La Force", number: "XI", symbol: "♾", color: "#d47a4a", shadow: "rgba(212,122,74,0.4)", keywords: "courage, patience, maîtrise de soi", element: "Feu", arcane: "Majeur" },
+  { name: "Le Pendu", number: "XII", symbol: "⊕", color: "#7ab4d4", shadow: "rgba(122,180,212,0.4)", keywords: "sacrifice, lâcher-prise, révélation", element: "Eau", arcane: "Majeur" },
+  { name: "L'Arcane XIII", number: "XIII", symbol: "✗", color: "#8b2252", shadow: "rgba(139,34,82,0.5)", keywords: "transformation, renouveau, passage", element: "Eau", arcane: "Majeur" },
+  { name: "La Tempérance", number: "XIV", symbol: "∞", color: "#7ad4b4", shadow: "rgba(122,212,180,0.4)", keywords: "équilibre, patience, alchimie", element: "Feu", arcane: "Majeur" },
+  { name: "Le Diable", number: "XV", symbol: "△", color: "#8b3a3a", shadow: "rgba(139,58,58,0.5)", keywords: "attachement, illusion, matière", element: "Terre", arcane: "Majeur" },
+  { name: "La Maison Dieu", number: "XVI", symbol: "⚡", color: "#d45a4a", shadow: "rgba(212,90,74,0.5)", keywords: "bouleversement, révélation, libération", element: "Feu", arcane: "Majeur" },
+  { name: "L'Étoile", number: "XVII", symbol: "★", color: "#7ab4d4", shadow: "rgba(122,180,212,0.4)", keywords: "espoir, inspiration, sérénité", element: "Air", arcane: "Majeur" },
+  { name: "La Lune", number: "XVIII", symbol: "☾", color: "#7b5ea7", shadow: "rgba(123,94,167,0.5)", keywords: "illusion, inconscient, intuition", element: "Eau", arcane: "Majeur" },
+  { name: "Le Soleil", number: "XIX", symbol: "☀", color: "#e8c97a", shadow: "rgba(232,201,122,0.5)", keywords: "joie, succès, clarté", element: "Feu", arcane: "Majeur" },
+  { name: "Le Jugement", number: "XX", symbol: "♪", color: "#a07fd4", shadow: "rgba(160,127,212,0.4)", keywords: "éveil, absolution, renaissance", element: "Feu", arcane: "Majeur" },
+  { name: "Le Monde", number: "XXI", symbol: "○", color: "#7dc47a", shadow: "rgba(125,196,122,0.4)", keywords: "accomplissement, totalité, voyage", element: "Terre", arcane: "Majeur" },
+];
+
+const SPREADS = [
+  { id: "single", label: "Carte du Jour", count: 1, description: "Un message de l'univers pour aujourd'hui", free: true },
+  { id: "three", label: "Tirage en Croix", count: 3, description: "Passé · Présent · Futur", free: true },
+  { id: "celtic", label: "Croix Celtique", count: 5, description: "Lecture approfondie de votre situation", free: false },
+];
+
+const SPREAD_POSITIONS = {
+  single: ["Message du Jour"],
+  three: ["Le Passé", "Le Présent", "Le Futur"],
+  celtic: ["Votre Situation", "Ce qui vous traverse", "Le Fondement", "Le Potentiel", "Le Résultat"],
+};
+
+async function callClaude(prompt) {
+  const response = await fetch("/api/claude", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt }),
+  });
+  const data = await response.json();
+  return data.text || "Les étoiles gardent silence pour l'instant...";
+}
+
+// ─── CSS ──────────────────────────────────────────────────────────────────────
+const css = `
+${GOOGLE_FONTS}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --gold: #c9a84c;
+  --gold-light: #e8c97a;
+  --gold-dim: #8a6f30;
+  --deep: #05040a;
+  --dark: #0c0a14;
+  --mid: #151222;
+  --card: #1a1628;
+  --card-hover: #211d35;
+  --text: #e8e0f0;
+  --text-dim: #9b90b8;
+  --accent: #7b5ea7;
+  --accent-light: #a07fd4;
+  --ruby: #8b2252;
+}
+
+body {
+  font-family: 'Cormorant Garamond', serif;
+  background: var(--deep);
+  color: var(--text);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+.stars-bg {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.star {
+  position: absolute;
+  border-radius: 50%;
+  background: white;
+  animation: twinkle var(--dur) ease-in-out infinite;
+  opacity: 0;
+}
+
+@keyframes twinkle {
+  0%, 100% { opacity: 0; transform: scale(0.8); }
+  50% { opacity: var(--max-op); transform: scale(1.2); }
+}
+
+.nebula { position: fixed; border-radius: 50%; filter: blur(80px); pointer-events: none; z-index: 0; }
+.nebula-1 { width: 600px; height: 400px; background: radial-gradient(ellipse, rgba(123,94,167,0.12) 0%, transparent 70%); top: -100px; right: -200px; }
+.nebula-2 { width: 500px; height: 500px; background: radial-gradient(ellipse, rgba(139,34,82,0.08) 0%, transparent 70%); bottom: 100px; left: -150px; }
+.nebula-3 { width: 400px; height: 300px; background: radial-gradient(ellipse, rgba(201,168,76,0.06) 0%, transparent 70%); top: 50%; left: 30%; }
+
+.app {
+  position: relative;
+  z-index: 1;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem 4rem;
+  min-height: 100vh;
+}
+
+/* HEADER */
+.header { text-align: center; padding: 3rem 0 2rem; position: relative; }
+.header-ornament { color: var(--gold-dim); font-size: 1.2rem; letter-spacing: 0.5em; margin-bottom: 1rem; opacity: 0.7; }
+.header h1 {
+  font-family: 'Cinzel Decorative', serif;
+  font-size: clamp(2rem, 6vw, 3.5rem);
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--gold-dim) 0%, var(--gold-light) 50%, var(--gold-dim) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  line-height: 1.2;
+  letter-spacing: 0.05em;
+}
+.header-sub { font-family: 'Cinzel', serif; font-size: 0.85rem; letter-spacing: 0.3em; color: var(--text-dim); margin-top: 0.8rem; text-transform: uppercase; }
+.divider { display: flex; align-items: center; gap: 1rem; margin: 1.5rem auto; max-width: 300px; }
+.divider-line { flex: 1; height: 1px; background: linear-gradient(90deg, transparent, var(--gold-dim), transparent); }
+.divider-symbol { color: var(--gold); font-size: 1.2rem; }
+
+/* ONBOARDING */
+.onboarding { animation: fadeUp 0.6s ease forwards; }
+@keyframes fadeUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+.glass-card {
+  background: linear-gradient(135deg, rgba(26,22,40,0.9), rgba(21,18,34,0.95));
+  border: 1px solid rgba(201,168,76,0.2);
+  border-radius: 16px;
+  padding: 2.5rem;
+  backdrop-filter: blur(10px);
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5), inset 0 1px 0 rgba(201,168,76,0.1);
+}
+.glass-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at top left, rgba(123,94,167,0.08), transparent 60%);
+  pointer-events: none;
+}
+
+.card-title { font-family: 'Cinzel', serif; font-size: 1.1rem; color: var(--gold); letter-spacing: 0.2em; text-transform: uppercase; margin-bottom: 0.4rem; }
+.card-subtitle { font-style: italic; color: var(--text-dim); font-size: 1.05rem; margin-bottom: 2rem; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem; }
+@media (max-width: 500px) { .form-row { grid-template-columns: 1fr; } }
+.field-group { display: flex; flex-direction: column; gap: 0.5rem; }
+.field-label { font-family: 'Cinzel', serif; font-size: 0.75rem; letter-spacing: 0.15em; color: var(--gold-dim); text-transform: uppercase; }
+.mystic-input { background: rgba(255,255,255,0.04); border: 1px solid rgba(201,168,76,0.25); border-radius: 8px; padding: 0.8rem 1rem; color: var(--text); font-family: 'Cormorant Garamond', serif; font-size: 1.05rem; outline: none; transition: all 0.3s; width: 100%; }
+.mystic-input:focus { border-color: rgba(201,168,76,0.6); background: rgba(255,255,255,0.07); box-shadow: 0 0 20px rgba(201,168,76,0.1); }
+.mystic-input::placeholder { color: var(--text-dim); opacity: 0.5; }
+
+.btn-primary {
+  width: 100%;
+  margin-top: 1.5rem;
+  background: linear-gradient(135deg, #2a1f0e, #4a3515, #2a1f0e);
+  border: 1px solid var(--gold-dim);
+  border-radius: 8px;
+  padding: 1rem 2rem;
+  color: var(--gold-light);
+  font-family: 'Cinzel', serif;
+  font-size: 0.95rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.3s;
+  position: relative;
+  overflow: hidden;
+}
+.btn-primary::after { content: ''; position: absolute; inset: 0; background: linear-gradient(135deg, transparent, rgba(201,168,76,0.15), transparent); opacity: 0; transition: opacity 0.3s; }
+.btn-primary:hover::after { opacity: 1; }
+.btn-primary:hover { border-color: var(--gold); box-shadow: 0 0 30px rgba(201,168,76,0.25); transform: translateY(-1px); }
+
+/* PROFILE */
+.profile-banner {
+  background: linear-gradient(135deg, rgba(26,22,40,0.95), rgba(30,22,45,0.95));
+  border: 1px solid rgba(201,168,76,0.25);
+  border-radius: 16px;
+  padding: 1.5rem 2rem;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+  position: relative;
+  overflow: hidden;
+  animation: fadeUp 0.5s ease forwards;
+}
+.profile-banner::before { content: ''; position: absolute; right: -30px; top: -30px; width: 150px; height: 150px; background: radial-gradient(circle, rgba(201,168,76,0.08), transparent 70%); }
+.zodiac-symbol-big { font-size: 3rem; line-height: 1; filter: drop-shadow(0 0 15px rgba(201,168,76,0.4)); }
+.profile-name { font-family: 'Cinzel Decorative', serif; font-size: 1.4rem; color: var(--gold-light); margin-bottom: 0.2rem; }
+.profile-sign { font-family: 'Cinzel', serif; font-size: 0.8rem; letter-spacing: 0.2em; color: var(--text-dim); text-transform: uppercase; }
+.profile-tags { display: flex; gap: 0.5rem; margin-top: 0.5rem; flex-wrap: wrap; }
+.tag { background: rgba(123,94,167,0.2); border: 1px solid rgba(123,94,167,0.4); border-radius: 20px; padding: 0.2rem 0.7rem; font-size: 0.78rem; font-family: 'Cinzel', serif; color: var(--accent-light); letter-spacing: 0.05em; }
+
+/* TABS */
+.tabs { display: flex; gap: 0.5rem; margin-bottom: 2rem; border-bottom: 1px solid rgba(201,168,76,0.15); padding-bottom: 0; flex-wrap: wrap; }
+.tab-btn { background: none; border: none; border-bottom: 2px solid transparent; padding: 0.7rem 1.2rem; color: var(--text-dim); font-family: 'Cinzel', serif; font-size: 0.78rem; letter-spacing: 0.15em; text-transform: uppercase; cursor: pointer; transition: all 0.3s; margin-bottom: -1px; }
+.tab-btn:hover { color: var(--gold); }
+.tab-btn.active { color: var(--gold); border-bottom-color: var(--gold); }
+
+/* CONTENT */
+.section-animate { animation: fadeUp 0.5s ease forwards; }
+
+.reading-box {
+  background: linear-gradient(160deg, rgba(26,22,40,0.95), rgba(15,12,25,0.98));
+  border: 1px solid rgba(201,168,76,0.2);
+  border-radius: 12px;
+  padding: 2rem;
+  margin-bottom: 1.5rem;
+  position: relative;
+}
+.reading-box::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px; background: linear-gradient(90deg, transparent, var(--gold-dim), transparent); }
+.reading-title { font-family: 'Cinzel', serif; font-size: 0.8rem; letter-spacing: 0.25em; color: var(--gold-dim); text-transform: uppercase; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.7rem; }
+.reading-title-icon { font-size: 1rem; }
+.reading-text { font-size: 1.1rem; line-height: 1.9; color: var(--text); font-style: italic; font-weight: 300; }
+
+.loading-oracle { display: flex; align-items: center; gap: 1rem; color: var(--text-dim); font-style: italic; font-size: 1rem; padding: 1rem 0; }
+.loading-dots span { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--gold); margin: 0 2px; animation: pulse 1.4s ease-in-out infinite; }
+.loading-dots span:nth-child(2) { animation-delay: 0.2s; }
+.loading-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes pulse { 0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; } 40% { transform: scale(1); opacity: 1; } }
+
+.oracle-textarea { width: 100%; background: rgba(255,255,255,0.04); border: 1px solid rgba(201,168,76,0.25); border-radius: 10px; padding: 1rem 1.2rem; color: var(--text); font-family: 'Cormorant Garamond', serif; font-size: 1.05rem; font-style: italic; resize: none; outline: none; height: 90px; transition: all 0.3s; }
+.oracle-textarea:focus { border-color: rgba(201,168,76,0.5); box-shadow: 0 0 25px rgba(201,168,76,0.08); }
+
+.btn-ask { margin-top: 0.8rem; background: linear-gradient(135deg, rgba(123,94,167,0.3), rgba(100,70,150,0.4)); border: 1px solid rgba(160,127,212,0.4); border-radius: 8px; padding: 0.8rem 1.5rem; color: var(--accent-light); font-family: 'Cinzel', serif; font-size: 0.8rem; letter-spacing: 0.15em; text-transform: uppercase; cursor: pointer; transition: all 0.3s; display: flex; align-items: center; gap: 0.6rem; }
+.btn-ask:hover { background: linear-gradient(135deg, rgba(123,94,167,0.5), rgba(100,70,150,0.6)); border-color: rgba(160,127,212,0.7); box-shadow: 0 0 25px rgba(123,94,167,0.2); transform: translateY(-1px); }
+.btn-ask:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+.number-display { font-family: 'Cinzel Decorative', serif; font-size: 5rem; text-align: center; background: linear-gradient(135deg, var(--gold-dim), var(--gold-light)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; line-height: 1; filter: drop-shadow(0 0 30px rgba(201,168,76,0.3)); margin: 1rem 0; }
+.number-meaning { text-align: center; font-style: italic; color: var(--text-dim); font-size: 1.05rem; margin-bottom: 1.5rem; }
+
+.premium-overlay { position: relative; border-radius: 12px; overflow: hidden; }
+.premium-blur { filter: blur(4px); pointer-events: none; user-select: none; opacity: 0.5; }
+.premium-lock { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(5,4,10,0.7); backdrop-filter: blur(2px); text-align: center; padding: 2rem; gap: 1rem; }
+.lock-icon { font-size: 2rem; }
+.lock-title { font-family: 'Cinzel', serif; font-size: 0.9rem; letter-spacing: 0.2em; color: var(--gold); text-transform: uppercase; }
+.lock-text { color: var(--text-dim); font-size: 0.95rem; font-style: italic; }
+.btn-unlock { background: linear-gradient(135deg, #4a3515, #7a5a20, #4a3515); border: 1px solid var(--gold); border-radius: 8px; padding: 0.8rem 2rem; color: var(--gold-light); font-family: 'Cinzel', serif; font-size: 0.85rem; letter-spacing: 0.15em; text-transform: uppercase; cursor: pointer; transition: all 0.3s; }
+.btn-unlock:hover { box-shadow: 0 0 25px rgba(201,168,76,0.3); transform: translateY(-1px); }
+
+/* ═══════════════════════════════════════════════════════
+   TAROT STYLES
+═══════════════════════════════════════════════════════ */
+
+.tarot-spread-selector {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+@media (max-width: 560px) { .tarot-spread-selector { grid-template-columns: 1fr; } }
+
+.spread-option {
+  background: rgba(26,22,40,0.8);
+  border: 1px solid rgba(201,168,76,0.2);
+  border-radius: 12px;
+  padding: 1.2rem 1rem;
+  cursor: pointer;
+  transition: all 0.3s;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+.spread-option:hover {
+  border-color: rgba(201,168,76,0.5);
+  background: rgba(35,28,55,0.9);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+}
+.spread-option.selected {
+  border-color: var(--gold);
+  background: rgba(40,30,15,0.6);
+  box-shadow: 0 0 20px rgba(201,168,76,0.15), inset 0 0 20px rgba(201,168,76,0.05);
+}
+.spread-option.locked { opacity: 0.7; }
+.spread-option-name {
+  font-family: 'Cinzel', serif;
+  font-size: 0.85rem;
+  color: var(--gold);
+  letter-spacing: 0.1em;
+  margin-bottom: 0.4rem;
+}
+.spread-option-desc {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  font-style: italic;
+}
+.spread-lock-badge {
+  position: absolute;
+  top: 8px; right: 8px;
+  background: rgba(201,168,76,0.15);
+  border: 1px solid rgba(201,168,76,0.3);
+  border-radius: 10px;
+  padding: 0.15rem 0.5rem;
+  font-family: 'Cinzel', serif;
+  font-size: 0.65rem;
+  color: var(--gold-dim);
+  letter-spacing: 0.05em;
+}
+
+/* CARD DECK – face down */
+.deck-area {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 2rem 0;
+  gap: -20px;
+  position: relative;
+  min-height: 200px;
+}
+
+.deck-stack {
+  position: relative;
+  width: 110px;
+  height: 180px;
+  cursor: pointer;
+}
+
+.deck-card-back {
+  position: absolute;
+  width: 110px;
+  height: 180px;
+  border-radius: 10px;
+  border: 1px solid rgba(201,168,76,0.4);
+  background: linear-gradient(135deg, #0e0b1a, #1a1330, #0e0b1a);
+  transition: all 0.3s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+}
+.deck-card-back:nth-child(1) { transform: rotate(-3deg) translateY(4px); }
+.deck-card-back:nth-child(2) { transform: rotate(1.5deg) translateY(2px); }
+.deck-card-back:nth-child(3) { transform: rotate(0deg); }
+
+.deck-stack:hover .deck-card-back:last-child {
+  transform: rotate(0deg) translateY(-8px);
+  box-shadow: 0 12px 35px rgba(201,168,76,0.2);
+  border-color: rgba(201,168,76,0.7);
+}
+
+.card-back-pattern {
+  width: 84px;
+  height: 154px;
+  border-radius: 6px;
+  border: 1px solid rgba(201,168,76,0.2);
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(123,94,167,0.08) 0px,
+    rgba(123,94,167,0.08) 2px,
+    transparent 2px,
+    transparent 10px
+  );
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  color: rgba(201,168,76,0.3);
+}
+
+.draw-btn {
+  margin-top: 1.5rem;
+  background: linear-gradient(135deg, #2a1f0e, #4a3515, #2a1f0e);
+  border: 1px solid var(--gold-dim);
+  border-radius: 8px;
+  padding: 0.9rem 2.5rem;
+  color: var(--gold-light);
+  font-family: 'Cinzel', serif;
+  font-size: 0.9rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.3s;
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+}
+.draw-btn:hover { border-color: var(--gold); box-shadow: 0 0 30px rgba(201,168,76,0.3); transform: translateY(-1px); }
+.draw-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+/* DRAWN CARDS */
+.cards-row {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin: 1.5rem 0;
+}
+
+.tarot-card {
+  width: 110px;
+  border-radius: 12px;
+  overflow: hidden;
+  position: relative;
+  border: 1px solid rgba(201,168,76,0.35);
+  background: linear-gradient(160deg, #0e0b1a, #18132e);
+  box-shadow: 0 8px 30px rgba(0,0,0,0.6), 0 0 0 0 rgba(201,168,76,0);
+  animation: cardReveal 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  opacity: 0;
+  transform: rotateY(90deg) scale(0.8);
+  cursor: default;
+}
+
+.tarot-card:nth-child(1) { animation-delay: 0.1s; }
+.tarot-card:nth-child(2) { animation-delay: 0.35s; }
+.tarot-card:nth-child(3) { animation-delay: 0.6s; }
+.tarot-card:nth-child(4) { animation-delay: 0.85s; }
+.tarot-card:nth-child(5) { animation-delay: 1.1s; }
+
+@keyframes cardReveal {
+  0% { opacity: 0; transform: rotateY(90deg) scale(0.8); }
+  60% { opacity: 1; transform: rotateY(-5deg) scale(1.05); }
+  100% { opacity: 1; transform: rotateY(0deg) scale(1); }
+}
+
+.tarot-card.reversed { transform: rotate(180deg); }
+.tarot-card.reversed { animation: cardRevealReversed 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; opacity: 0; }
+@keyframes cardRevealReversed {
+  0% { opacity: 0; transform: rotateY(90deg) scale(0.8) rotate(180deg); }
+  60% { opacity: 1; transform: rotateY(-5deg) scale(1.05) rotate(180deg); }
+  100% { opacity: 1; transform: rotateY(0deg) scale(1) rotate(180deg); }
+}
+
+.card-top-band {
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.card-roman {
+  font-family: 'Cinzel', serif;
+  font-size: 0.65rem;
+  color: rgba(255,255,255,0.5);
+  letter-spacing: 0.05em;
+}
+.card-arcane-badge {
+  font-family: 'Cinzel', serif;
+  font-size: 0.5rem;
+  letter-spacing: 0.05em;
+  opacity: 0.5;
+}
+
+.card-symbol-area {
+  height: 90px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+.card-glow {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  filter: blur(20px);
+  opacity: 0.35;
+}
+.card-symbol {
+  font-size: 2.8rem;
+  position: relative;
+  z-index: 1;
+  filter: drop-shadow(0 0 8px var(--sym-color));
+  line-height: 1;
+}
+
+.card-divider {
+  height: 1px;
+  margin: 0 12px;
+  background: linear-gradient(90deg, transparent, rgba(201,168,76,0.3), transparent);
+}
+
+.card-bottom {
+  padding: 8px 8px 10px;
+  text-align: center;
+}
+.card-name {
+  font-family: 'Cinzel', serif;
+  font-size: 0.6rem;
+  letter-spacing: 0.08em;
+  color: var(--gold-light);
+  line-height: 1.3;
+  margin-bottom: 3px;
+}
+.card-keywords {
+  font-size: 0.55rem;
+  color: var(--text-dim);
+  font-style: italic;
+  line-height: 1.3;
+  opacity: 0.8;
+}
+.card-position-label {
+  text-align: center;
+  font-family: 'Cinzel', serif;
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  color: var(--gold-dim);
+  text-transform: uppercase;
+  margin-top: 0.5rem;
+  opacity: 0.8;
+}
+.reversed-badge {
+  position: absolute;
+  bottom: 4px; right: 4px;
+  background: rgba(139,34,82,0.5);
+  border-radius: 4px;
+  padding: 1px 4px;
+  font-family: 'Cinzel', serif;
+  font-size: 0.45rem;
+  color: #d4a0b0;
+  transform: rotate(180deg);
+}
+
+/* INTERPRETATION */
+.tarot-interp {
+  background: linear-gradient(160deg, rgba(20,15,35,0.98), rgba(12,10,20,0.99));
+  border: 1px solid rgba(201,168,76,0.2);
+  border-radius: 12px;
+  padding: 2rem;
+  margin-top: 1.5rem;
+  position: relative;
+  overflow: hidden;
+}
+.tarot-interp::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--gold), transparent);
+}
+.tarot-interp::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--gold-dim), transparent);
+}
+
+.new-reading-btn {
+  display: block;
+  margin: 1.5rem auto 0;
+  background: none;
+  border: 1px solid rgba(201,168,76,0.25);
+  border-radius: 8px;
+  padding: 0.7rem 2rem;
+  color: var(--text-dim);
+  font-family: 'Cinzel', serif;
+  font-size: 0.75rem;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+.new-reading-btn:hover { border-color: var(--gold-dim); color: var(--gold); }
+
+/* FOOTER */
+.footer { text-align: center; margin-top: 3rem; padding-top: 2rem; border-top: 1px solid rgba(201,168,76,0.1); color: var(--text-dim); font-size: 0.8rem; font-style: italic; opacity: 0.6; }
+
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--deep); }
+::-webkit-scrollbar-thumb { background: var(--gold-dim); border-radius: 4px; }
+`;
+
+// ─── COMPONENTS ───────────────────────────────────────────────────────────────
+
+function Stars() {
+  const stars = Array.from({ length: 80 }, (_, i) => ({
+    id: i,
+    x: Math.random() * 100,
+    y: Math.random() * 100,
+    size: Math.random() * 2 + 0.5,
+    dur: (Math.random() * 4 + 2).toFixed(1),
+    maxOp: (Math.random() * 0.7 + 0.1).toFixed(2),
+    delay: (Math.random() * 5).toFixed(1),
+  }));
+  return (
+    <div className="stars-bg">
+      {stars.map((s) => (
+        <div key={s.id} className="star" style={{
+          left: `${s.x}%`, top: `${s.y}%`,
+          width: `${s.size}px`, height: `${s.size}px`,
+          "--dur": `${s.dur}s`, "--max-op": s.maxOp,
+          animationDelay: `${s.delay}s`,
+        }} />
+      ))}
+    </div>
+  );
+}
+
+function LoadingOracle({ text = "L'oracle consulte les astres" }) {
+  return (
+    <div className="loading-oracle">
+      <div className="loading-dots"><span /><span /><span /></div>
+      <span>{text}…</span>
+    </div>
+  );
+}
+
+// ─── TAROT CARD VISUAL ────────────────────────────────────────────────────────
+function TarotCardVisual({ card, isReversed, positionLabel }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+      <div className={`tarot-card${isReversed ? " reversed" : ""}`} style={{ "--sym-color": card.color }}>
+        {isReversed && <div className="reversed-badge">↓ inversée</div>}
+        <div className="card-top-band">
+          <span className="card-roman">{card.number}</span>
+          <span className="card-arcane-badge" style={{ color: card.color }}>{card.element}</span>
+        </div>
+        <div className="card-symbol-area">
+          <div className="card-glow" style={{ background: `radial-gradient(circle, ${card.color}, transparent)` }} />
+          <span className="card-symbol">{card.symbol}</span>
+        </div>
+        <div className="card-divider" />
+        <div className="card-bottom">
+          <div className="card-name">{card.name}</div>
+          <div className="card-keywords">{card.keywords}</div>
+        </div>
+      </div>
+      {positionLabel && <div className="card-position-label">{positionLabel}</div>}
+    </div>
+  );
+}
+
+// ─── TAROT TAB ────────────────────────────────────────────────────────────────
+function TarotTab({ profile }) {
+  const [selectedSpread, setSelectedSpread] = useState("single");
+  const [drawnCards, setDrawnCards] = useState([]);
+  const [interpSections, setInterpSections] = useState([]);
+  const [loadingInterp, setLoadingInterp] = useState(false);
+  const [phase, setPhase] = useState("choose"); // choose | drawn | done
+  const [showPremiumLock, setShowPremiumLock] = useState(false);
+
+  const spreadData = SPREADS.find(s => s.id === selectedSpread);
+  const positions = SPREAD_POSITIONS[selectedSpread];
+
+  const drawCards = () => {
+    if (!spreadData.free) { setShowPremiumLock(true); return; }
+    const shuffled = [...TAROT_DECK].sort(() => Math.random() - 0.5);
+    const drawn = shuffled.slice(0, spreadData.count).map(card => ({
+      ...card,
+      isReversed: Math.random() < 0.3,
+    }));
+    setDrawnCards(drawn);
+    setPhase("drawn");
+    setInterpretation("");
+    setShowPremiumLock(false);
+    setTimeout(() => revealInterpretation(drawn), spreadData.count * 350 + 600);
+  };
+
+  const revealInterpretation = async (drawn) => {
+    setLoadingInterp(true);
+    setPhase("done");
+    const spreadName = SPREADS.find(s => s.id === selectedSpread).label;
+    const cardDescriptions = drawn.map((c, i) =>
+      `Position ${i + 1} (${positions[i]}) : ${c.name}${c.isReversed ? " (inversée)" : ""} — ${c.keywords}`
+    ).join("; ");
+    const raw = await callClaude(
+      `Interprète ce tirage de tarot pour ${profile.name}, ${profile.zodiac.name}, chemin de vie ${profile.numerology}.
+Tirage : ${spreadName}. Cartes : ${cardDescriptions}.
+Réponds UNIQUEMENT en JSON valide sans markdown :
+{"energie":"2 phrases sur l'énergie générale du tirage","carte1":"2 phrases sur la première carte et sa position","carte2":"2 phrases sur la deuxième carte (si présente, sinon chaîne vide)","carte3":"2 phrases sur la troisième carte (si présente, sinon chaîne vide)","synthese":"2 phrases de synthèse et conseil final"}`
+    );
+    try {
+      const d = JSON.parse(raw.replace(/\`\`\`json|\`\`\`/g,"").trim());
+      const secs = [{ icon: "✦", title: "Énergie du Tirage", text: d.energie }];
+      drawn.forEach((c, i) => {
+        const key = i === 0 ? "carte1" : i === 1 ? "carte2" : "carte3";
+        if (d[key]) secs.push({ icon: c.symbol, title: `${positions[i]} — ${c.name}`, text: d[key] });
+      });
+      secs.push({ icon: "🔮", title: "Synthèse & Conseil", text: d.synthese });
+      setInterpSections(secs);
+    } catch { setInterpSections([{ icon: "🔮", title: "Lecture", text: raw }]); }
+    setLoadingInterp(false);
+  };
+
+  const reset = () => {
+    setDrawnCards([]);
+    setInterpSections([]);
+    setPhase("choose");
+    setShowPremiumLock(false);
+  };
+
+  return (
+    <div className="section-animate">
+      {/* Spread selector */}
+      <div className="reading-box" style={{ marginBottom: "1.5rem" }}>
+        <div className="reading-title"><span className="reading-title-icon">🃏</span> Choisissez votre Tirage</div>
+        <div className="tarot-spread-selector">
+          {SPREADS.map(s => (
+            <div
+              key={s.id}
+              className={`spread-option${selectedSpread === s.id ? " selected" : ""}${!s.free ? " locked" : ""}`}
+              onClick={() => { setSelectedSpread(s.id); reset(); }}
+            >
+              {!s.free && <span className="spread-lock-badge">Premium</span>}
+              <div className="spread-option-name">{s.label}</div>
+              <div style={{ fontSize: "1.4rem", margin: "0.4rem 0", opacity: 0.8 }}>
+                {s.count === 1 ? "🃏" : s.count === 3 ? "🃏🃏🃏" : "🃏🃏🃏🃏🃏"}
+              </div>
+              <div className="spread-option-desc">{s.description}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Draw area */}
+      {phase === "choose" && (
+        <div className="reading-box" style={{ textAlign: "center" }}>
+          <div className="reading-title" style={{ justifyContent: "center" }}>
+            <span>✦</span> Concentrez-vous sur votre intention
+          </div>
+          <p style={{ color: "var(--text-dim)", fontStyle: "italic", fontSize: "1rem", marginBottom: "1.5rem" }}>
+            Respirez profondément. Formulez mentalement votre question ou intention, puis laissez les cartes parler.
+          </p>
+          <div className="deck-area">
+            <div className="deck-stack" onClick={drawCards}>
+              <div className="deck-card-back"><div className="card-back-pattern">✦</div></div>
+              <div className="deck-card-back"><div className="card-back-pattern">✦</div></div>
+              <div className="deck-card-back"><div className="card-back-pattern">✦</div></div>
+            </div>
+          </div>
+          <button className="draw-btn" onClick={drawCards}>
+            ✦ Tirer les Cartes
+          </button>
+
+          {showPremiumLock && (
+            <div style={{ marginTop: "1.5rem", background: "rgba(201,168,76,0.05)", border: "1px solid rgba(201,168,76,0.2)", borderRadius: "10px", padding: "1.5rem" }}>
+              <div style={{ fontFamily: "'Cinzel', serif", fontSize: "0.85rem", color: "var(--gold)", letterSpacing: "0.15em", marginBottom: "0.5rem" }}>🔮 TIRAGE PREMIUM</div>
+              <p style={{ color: "var(--text-dim)", fontStyle: "italic", marginBottom: "1rem" }}>La Croix Celtique révèle les mystères les plus profonds de votre situation.</p>
+              <button className="btn-unlock">Débloquer — 4,99€</button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Cards displayed */}
+      {(phase === "drawn" || phase === "done") && drawnCards.length > 0 && (
+        <div className="reading-box">
+          <div className="reading-title"><span>✦</span> {spreadData.label}</div>
+          <div className="cards-row">
+            {drawnCards.map((card, i) => (
+              <TarotCardVisual
+                key={i}
+                card={card}
+                isReversed={card.isReversed}
+                positionLabel={positions[i]}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Interpretation */}
+      {(loadingInterp || interpSections.length > 0) && (
+        <div className="tarot-interp">
+          <div className="reading-title" style={{ justifyContent: "center", marginBottom: "1.2rem" }}>
+            <span>🔮</span> Lecture de Séraphiel
+          </div>
+          <SectionedReading sections={interpSections} loading={loadingInterp} loadingText="Séraphiel lit les arcanes" />
+          {!loadingInterp && (
+            <button className="new-reading-btn" onClick={reset}>↩ Nouveau Tirage</button>
+          )}
+        </div>
+      )}
+
+      {/* Premium upsell for Celtic cross */}
+      <div style={{ marginTop: "1.5rem" }} className="premium-overlay">
+        <div className="reading-box premium-blur">
+          <div className="reading-title"><span>🌙</span> Tirage de l'Année — 12 cartes</div>
+          <p className="reading-text">Un tirage carte par carte pour chaque mois de l'année à venir, révélant les grandes tendances de votre destin…</p>
+        </div>
+        <div className="premium-lock">
+          <div className="lock-icon">🌙</div>
+          <div className="lock-title">Tirage Annuel</div>
+          <div className="lock-text">12 cartes · 12 mois · Interprétation complète personnalisée</div>
+          <button className="btn-unlock">Révéler mon Année — 14,99€</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ─── HELPER: Sectioned reading display ────────────────────────────────────────
+function SectionedReading({ sections, loading, loadingText }) {
+  if (loading) return <LoadingOracle text={loadingText} />;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "1.2rem" }}>
+      {sections.map((s, i) => (
+        <div key={i} style={{ borderLeft: "2px solid rgba(201,168,76,0.3)", paddingLeft: "1rem" }}>
+          <div style={{ fontFamily: "'Cinzel', serif", fontSize: "0.72rem", letterSpacing: "0.2em", color: "var(--gold)", textTransform: "uppercase", marginBottom: "0.45rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <span>{s.icon}</span> {s.title}
+          </div>
+          <p style={{ fontSize: "1.05rem", lineHeight: "1.75", color: "var(--text)", fontStyle: "italic", fontWeight: 300 }}>{s.text}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── STORAGE HELPERS ─────────────────────────────────────────────────────────
+const STORAGE_KEY_DAILY = (name) => `seraphiel_daily_${name}`;
+const STORAGE_KEY_MONTHLY = (name) => `seraphiel_monthly_${name}`;
+const STORAGE_KEY_NOTIF = (name) => `seraphiel_notif_${name}`;
+
+function getTodayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`;
+}
+
+function getMonthKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${d.getMonth()+1}`;
+}
+
+// In-memory fallback when localStorage is unavailable (sandbox/iframe)
+const memCache = {};
+
+function loadCached(key) {
+  if (memCache[key] !== undefined) return memCache[key];
+  try { return JSON.parse(localStorage.getItem(key)); } catch { return null; }
+}
+
+function saveCache(key, data) {
+  memCache[key] = data;
+  try { localStorage.setItem(key, JSON.stringify(data)); } catch {}
+}
+
+// ─── NOTIFICATION HELPERS ─────────────────────────────────────────────────────
+async function requestNotifPermission() {
+  if (typeof window === "undefined" || !("Notification" in window)) return "unsupported";
+  if (window.Notification.permission === "granted") return "granted";
+  if (window.Notification.permission === "denied") return "denied";
+  try {
+    const perm = await window.Notification.requestPermission();
+    return perm;
+  } catch { return "unsupported"; }
+}
+
+function scheduleNotifCheck(profile, hour, minute) {
+  // Save schedule in localStorage, check on load
+  const key = STORAGE_KEY_NOTIF(profile.name);
+  saveCache(key, { hour, minute, zodiac: profile.zodiac.name, name: profile.name });
+}
+
+function sendTestNotif(name, zodiac) {
+  if (typeof window === "undefined" || !("Notification" in window)) return;
+  if (window.Notification.permission !== "granted") return;
+  try {
+    new window.Notification(`✦ Séraphiel — ${name}`, {
+      body: `Votre horoscope du jour est prêt, ${zodiac}. Ouvrez l'application pour le découvrir.`,
+    });
+  } catch {}
+}
+
+// ─── OTHER TABS ───────────────────────────────────────────────────────────────
+function HoroscopeTab({ profile }) {
+  // Daily horoscope
+  const [daySections, setDaySections] = useState([]);
+  const [dayLoading, setDayLoading] = useState(true);
+
+  // Monthly horoscope
+  const [monthSections, setMonthSections] = useState([]);
+  const [monthLoading, setMonthLoading] = useState(false);
+  const [monthOpen, setMonthOpen] = useState(false);
+
+  // Notifications
+  const [notifPerm, setNotifPerm] = useState(() => {
+    if (typeof window === "undefined" || !("Notification" in window)) return "unsupported";
+    return window.Notification.permission;
+  });
+  const [notifHour, setNotifHour] = useState("08");
+  const [notifMinute, setNotifMinute] = useState("00");
+  const [notifSaved, setNotifSaved] = useState(false);
+  const [showNotifPanel, setShowNotifPanel] = useState(false);
+
+  const loaded = useRef(false);
+
+  useEffect(() => {
+    if (loaded.current) return;
+    loaded.current = true;
+
+    // Load or generate daily horoscope
+    const dailyKey = `${STORAGE_KEY_DAILY(profile.name)}_${getTodayKey()}`;
+    const cached = loadCached(dailyKey);
+    if (cached) { setDaySections(cached); setDayLoading(false); return; }
+
+    (async () => {
+      const today = new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+      const raw = await callClaude(
+        `Génère un horoscope du jour pour ${profile.name}, ${profile.zodiac.name} (élément ${profile.zodiac.element}), chemin de vie ${profile.numerology}. Date : ${today}.
+Réponds UNIQUEMENT en JSON valide sans markdown ni backticks :
+{"amour":"2 phrases poétiques sur l'amour","travail":"2 phrases sur la carrière","energie":"2 phrases sur l'énergie intérieure","conseil":"1 phrase — le message clé du jour"}`
+      );
+      try {
+        const d = JSON.parse(raw.replace(/```json|```/g,"").trim());
+        const secs = [
+          { icon: "♡", title: "Amour & Relations", text: d.amour },
+          { icon: "✦", title: "Travail & Projets", text: d.travail },
+          { icon: "☽", title: "Énergie Intérieure", text: d.energie },
+          { icon: "🌟", title: "Message du Jour", text: d.conseil },
+        ];
+        setDaySections(secs);
+        saveCache(dailyKey, secs);
+      } catch { setDaySections([{ icon: "✦", title: "Révélation", text: raw }]); }
+      setDayLoading(false);
+    })();
+
+    // Load saved notif settings
+    const notifData = loadCached(STORAGE_KEY_NOTIF(profile.name));
+    if (notifData) {
+      setNotifHour(String(notifData.hour).padStart(2,"0"));
+      setNotifMinute(String(notifData.minute).padStart(2,"0"));
+      setNotifSaved(true);
+    }
+  }, []);
+
+  const loadMonthly = async () => {
+    if (monthSections.length > 0) { setMonthOpen(true); return; }
+    const monthKey = `${STORAGE_KEY_MONTHLY(profile.name)}_${getMonthKey()}`;
+    const cached = loadCached(monthKey);
+    if (cached) { setMonthSections(cached); setMonthOpen(true); return; }
+
+    setMonthLoading(true);
+    setMonthOpen(true);
+    const monthName = new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+    const raw = await callClaude(
+      `Génère un horoscope du mois de ${monthName} pour ${profile.name}, ${profile.zodiac.name}, chemin de vie ${profile.numerology}.
+Réponds UNIQUEMENT en JSON valide sans markdown :
+{"theme":"2 phrases sur le thème dominant du mois","amour":"2 phrases sur l'amour ce mois-ci","travail":"2 phrases sur la carrière et les projets du mois","finance":"2 phrases sur l'énergie financière et matérielle","sante":"2 phrases sur le bien-être et la santé","conseil":"1 phrase — le mantra du mois"}`
+    );
+    try {
+      const d = JSON.parse(raw.replace(/```json|```/g,"").trim());
+      const secs = [
+        { icon: "🌌", title: "Thème du Mois", text: d.theme },
+        { icon: "♡", title: "Amour", text: d.amour },
+        { icon: "✦", title: "Carrière & Projets", text: d.travail },
+        { icon: "💎", title: "Énergie Matérielle", text: d.finance },
+        { icon: "🌿", title: "Bien-être", text: d.sante },
+        { icon: "🌟", title: "Mantra du Mois", text: d.conseil },
+      ];
+      setMonthSections(secs);
+      saveCache(monthKey, secs);
+    } catch { setMonthSections([{ icon: "🌙", title: "Mois", text: raw }]); }
+    setMonthLoading(false);
+  };
+
+  const handleEnableNotif = async () => {
+    const perm = await requestNotifPermission();
+    setNotifPerm(perm);
+    if (perm === "granted") {
+      scheduleNotifCheck(profile, parseInt(notifHour), parseInt(notifMinute));
+      setNotifSaved(true);
+      sendTestNotif(profile.name, profile.zodiac.name);
+    }
+  };
+
+  const handleSaveTime = () => {
+    scheduleNotifCheck(profile, parseInt(notifHour), parseInt(notifMinute));
+    setNotifSaved(true);
+    if (notifPerm === "granted") sendTestNotif(profile.name, profile.zodiac.name);
+  };
+
+  const today = new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+  const monthLabel = new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+
+  return (
+    <div className="section-animate">
+
+      {/* ── Horoscope du Jour ── */}
+      <div className="reading-box">
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"1rem", flexWrap:"wrap", gap:"0.5rem" }}>
+          <div className="reading-title" style={{ margin:0 }}><span className="reading-title-icon">✦</span> Horoscope du Jour</div>
+          <div style={{ fontFamily:"'Cinzel', serif", fontSize:"0.68rem", color:"var(--text-dim)", letterSpacing:"0.1em", textTransform:"capitalize" }}>{today}</div>
+        </div>
+        <SectionedReading sections={daySections} loading={dayLoading} loadingText="L'oracle consulte les astres" />
+        {!dayLoading && (
+          <div style={{ marginTop:"1rem", paddingTop:"0.8rem", borderTop:"1px solid rgba(201,168,76,0.1)", display:"flex", alignItems:"center", gap:"0.5rem" }}>
+            <span style={{ fontSize:"0.75rem", color:"var(--text-dim)", fontStyle:"italic" }}>✦ Votre horoscope se renouvelle chaque jour à minuit</span>
+          </div>
+        )}
+      </div>
+
+      {/* ── Horoscope du Mois ── */}
+      <div className="reading-box" style={{ borderColor: monthOpen ? "rgba(201,168,76,0.3)" : "rgba(201,168,76,0.15)" }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:"0.5rem" }}>
+          <div className="reading-title" style={{ margin:0 }}><span>🌙</span> Horoscope du Mois</div>
+          <span style={{ fontFamily:"'Cinzel', serif", fontSize:"0.68rem", color:"var(--gold-dim)", letterSpacing:"0.1em", textTransform:"capitalize" }}>{monthLabel}</span>
+        </div>
+        {!monthOpen ? (
+          <div style={{ marginTop:"1rem" }}>
+            <p style={{ color:"var(--text-dim)", fontStyle:"italic", fontSize:"0.95rem", marginBottom:"1rem" }}>
+              Découvrez les grandes tendances du mois — amour, carrière, bien-être et au-delà.
+            </p>
+            <button className="btn-ask" style={{ marginTop:0 }} onClick={loadMonthly}>
+              <span>🌙</span> Révéler le Mois de {monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1).split(" ")[0]}
+            </button>
+          </div>
+        ) : (
+          <div style={{ marginTop:"1rem" }}>
+            <SectionedReading sections={monthSections} loading={monthLoading} loadingText="L'oracle lit les astres du mois" />
+            {!monthLoading && (
+              <button onClick={() => setMonthOpen(false)} style={{ marginTop:"1rem", background:"none", border:"none", color:"var(--text-dim)", fontFamily:"'Cinzel', serif", fontSize:"0.72rem", cursor:"pointer", letterSpacing:"0.1em" }}>
+                ↑ Replier
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── Notifications ── */}
+      <div className="reading-box" style={{ borderColor: notifSaved ? "rgba(201,168,76,0.35)" : "rgba(201,168,76,0.15)" }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+          <div className="reading-title" style={{ margin:0 }}>
+            <span>🔔</span> Rappel Quotidien
+          </div>
+          {notifSaved && <span style={{ fontFamily:"'Cinzel', serif", fontSize:"0.68rem", color:"var(--gold)", letterSpacing:"0.1em" }}>✦ Activé {notifHour}:{notifMinute}</span>}
+        </div>
+
+        {!showNotifPanel && !notifSaved && (
+          <div style={{ marginTop:"1rem" }}>
+            <p style={{ color:"var(--text-dim)", fontStyle:"italic", fontSize:"0.95rem", marginBottom:"1rem" }}>
+              Recevez votre horoscope chaque matin à l'heure de votre choix.
+            </p>
+            <button className="btn-ask" style={{ marginTop:0 }} onClick={() => setShowNotifPanel(true)}>
+              <span>🔔</span> Configurer mon Rappel
+            </button>
+          </div>
+        )}
+
+        {(showNotifPanel || notifSaved) && (
+          <div style={{ marginTop:"1rem" }}>
+            {notifPerm === "unsupported" && (
+              <p style={{ color:"#c06080", fontStyle:"italic", fontSize:"0.88rem" }}>Les notifications ne sont pas disponibles dans cet environnement. Installez l'app pour les activer.</p>
+            )}
+            {notifPerm === "denied" && (
+              <p style={{ color:"#c06080", fontStyle:"italic", fontSize:"0.88rem" }}>Les notifications sont bloquées. Autorisez-les dans les réglages de votre navigateur.</p>
+            )}
+            {(notifPerm === "default" || notifPerm === "granted") && (
+              <div>
+                <p style={{ color:"var(--text-dim)", fontStyle:"italic", fontSize:"0.88rem", marginBottom:"0.8rem" }}>
+                  Choisissez l'heure de votre révélation quotidienne :
+                </p>
+                <div style={{ display:"flex", alignItems:"center", gap:"0.8rem", flexWrap:"wrap" }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:"0.4rem" }}>
+                    <input
+                      type="number" min="0" max="23"
+                      value={notifHour}
+                      onChange={e => setNotifHour(String(e.target.value).padStart(2,"0"))}
+                      className="mystic-input"
+                      style={{ width:"64px", textAlign:"center", padding:"0.6rem 0.5rem" }}
+                    />
+                    <span style={{ color:"var(--gold)", fontFamily:"'Cinzel', serif", fontSize:"1.2rem" }}>:</span>
+                    <input
+                      type="number" min="0" max="59" step="5"
+                      value={notifMinute}
+                      onChange={e => setNotifMinute(String(e.target.value).padStart(2,"0"))}
+                      className="mystic-input"
+                      style={{ width:"64px", textAlign:"center", padding:"0.6rem 0.5rem" }}
+                    />
+                  </div>
+                  {notifPerm !== "granted" ? (
+                    <button className="btn-ask" style={{ marginTop:0 }} onClick={handleEnableNotif}>
+                      <span>🔔</span> Activer
+                    </button>
+                  ) : (
+                    <button className="btn-ask" style={{ marginTop:0 }} onClick={handleSaveTime}>
+                      <span>✦</span> {notifSaved ? "Mettre à jour" : "Enregistrer"}
+                    </button>
+                  )}
+                </div>
+                {notifSaved && (
+                  <p style={{ marginTop:"0.8rem", color:"var(--gold-dim)", fontStyle:"italic", fontSize:"0.85rem" }}>
+                    ✦ Vous recevrez votre horoscope chaque jour à {notifHour}h{notifMinute}. Une notification de test vient d'être envoyée.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── Premium semaine ── */}
+      <div className="premium-overlay">
+        <div className="reading-box premium-blur">
+          <div className="reading-title"><span>⭐</span> Prévision sur 7 Jours</div>
+          <p className="reading-text">Mercredi prochain, Mercure en trigone favorise vos communications professionnelles…</p>
+        </div>
+        <div className="premium-lock">
+          <div className="lock-icon">⭐</div>
+          <div className="lock-title">Horoscope Premium</div>
+          <div className="lock-text">7 jours détaillés + compatibilité astrale + alertes planétaires</div>
+          <button className="btn-unlock">Débloquer — 4,99€</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OracleTab({ profile }) {
+  const [question, setQuestion] = useState("");
+  const [sections, setSections] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [askedCount, setAskedCount] = useState(0);
+  const ask = async () => {
+    if (!question.trim() || loading) return;
+    setLoading(true);
+    setSections([]);
+    const raw = await callClaude(
+      `${profile.name} (${profile.zodiac.name}, chemin de vie ${profile.numerology}) pose cette question : "${question}".
+Réponds comme Séraphiel, oracle mystique. UNIQUEMENT en JSON valide sans markdown :
+{"lumiere":"2 phrases — ce que la lumière révèle sur cette question","ombre":"2 phrases — ce qu'il faut regarder en face","guidance":"2 phrases — la guidance de l'oracle","mantra":"1 phrase courte à méditer"}`
+    );
+    try {
+      const d = JSON.parse(raw.replace(/```json|```/g,"").trim());
+      setSections([
+        { icon: "☀", title: "La Lumière", text: d.lumiere },
+        { icon: "🌑", title: "L'Ombre", text: d.ombre },
+        { icon: "🔮", title: "Guidance", text: d.guidance },
+        { icon: "✦", title: "Mantra", text: d.mantra },
+      ]);
+    } catch { setSections([{ icon: "🔮", title: "Réponse", text: raw }]); }
+    setLoading(false);
+    setAskedCount((c) => c + 1);
+  };
+  return (
+    <div className="section-animate">
+      <div className="reading-box">
+        <div className="reading-title"><span className="reading-title-icon">🌠</span> Parlez à l'Oracle</div>
+        <p style={{ color: "var(--text-dim)", fontStyle: "italic", marginBottom: "1.2rem", fontSize: "0.95rem" }}>Formulez votre question avec sincérité. Séraphiel vous guidera.</p>
+        <textarea className="oracle-textarea" placeholder="Quelle question portez-vous en votre cœur ?" value={question} onChange={(e) => setQuestion(e.target.value)} />
+        <button className="btn-ask" onClick={ask} disabled={loading || !question.trim()}>
+          <span>✦</span> Consulter l'Oracle
+        </button>
+      </div>
+      {(loading || sections.length > 0) && (
+        <div className="reading-box" style={{ borderColor: "rgba(123,94,167,0.3)" }}>
+          <div className="reading-title" style={{ color: "var(--accent-light)" }}><span>🔮</span> Réponse de Séraphiel</div>
+          <SectionedReading sections={sections} loading={loading} loadingText="Séraphiel consulte les sphères célestes" />
+        </div>
+      )}
+      {askedCount >= 2 && (
+        <div className="premium-overlay">
+          <div className="reading-box premium-blur">
+            <div className="reading-title"><span>⭐</span> Questions Illimitées</div>
+            <p className="reading-text">Posez autant de questions que vous le désirez…</p>
+          </div>
+          <div className="premium-lock">
+            <div className="lock-icon">⭐</div>
+            <div className="lock-title">Oracle Illimité</div>
+            <div className="lock-text">Questions illimitées + lectures approfondies + carte du tarot personnalisée</div>
+            <button className="btn-unlock">Accès Illimité — 9,99€/mois</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NumerologyTab({ profile }) {
+  const [sections, setSections] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const loaded = useRef(false);
+  useEffect(() => {
+    if (loaded.current) return;
+    loaded.current = true;
+    (async () => {
+      const raw = await callClaude(
+        `Lecture numérologique pour ${profile.name}, chemin de vie ${profile.numerology} (${NUMEROLOGY_MEANINGS[profile.numerology]}), né(e) le ${profile.birthdate}.
+Réponds UNIQUEMENT en JSON valide sans markdown :
+{"essence":"2 phrases sur l'essence profonde de ce nombre","dons":"2 phrases sur les dons et talents naturels","defis":"2 phrases sur les défis karmiques","annee":"2 phrases sur l'énergie de l'année en cours pour cette vibration"}`
+      );
+      try {
+        const d = JSON.parse(raw.replace(/```json|```/g,"").trim());
+        setSections([
+          { icon: "✦", title: "Essence du Nombre", text: d.essence },
+          { icon: "🌟", title: "Dons & Talents", text: d.dons },
+          { icon: "⚡", title: "Défis Karmiques", text: d.defis },
+          { icon: "☀", title: "Énergie de l'Année", text: d.annee },
+        ]);
+      } catch { setSections([{ icon: "🔢", title: "Lecture", text: raw }]); }
+      setLoading(false);
+    })();
+  }, []);
+  return (
+    <div className="section-animate">
+      <div className="reading-box" style={{ textAlign: "center" }}>
+        <div className="reading-title" style={{ justifyContent: "center" }}><span>🔢</span> Votre Chemin de Vie</div>
+        <div className="number-display">{profile.numerology}</div>
+        <div className="number-meaning">{NUMEROLOGY_MEANINGS[profile.numerology]}</div>
+      </div>
+      <div className="reading-box">
+        <SectionedReading sections={sections} loading={loading} loadingText="Calcul des vibrations numériques" />
+      </div>
+      <div className="premium-overlay">
+        <div className="reading-box premium-blur">
+          <div className="reading-title"><span>🌟</span> Analyse Karmique Complète</div>
+          <p className="reading-text">Votre nombre d'expression, de l'âme et vos cycles personnels révèlent…</p>
+        </div>
+        <div className="premium-lock">
+          <div className="lock-icon">📜</div>
+          <div className="lock-title">Portrait Numérologique</div>
+          <div className="lock-text">Rapport complet de 5 pages avec tous vos nombres et prévisions annuelles</div>
+          <button className="btn-unlock">Obtenir mon Portrait — 7,99€</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ThemeTab({ profile }) {
+  const [sections, setSections] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const loaded = useRef(false);
+  useEffect(() => {
+    if (loaded.current) return;
+    loaded.current = true;
+    (async () => {
+      const raw = await callClaude(
+        `Thème astral de ${profile.name}, ${profile.zodiac.name} (élément ${profile.zodiac.element}), chemin de vie ${profile.numerology}.
+Réponds UNIQUEMENT en JSON valide sans markdown :
+{"soleil":"2 phrases sur l'essence solaire et la nature profonde du signe","element":"2 phrases sur l'influence de l'élément ${profile.zodiac.element}","karma":"2 phrases sur les forces karmiques et leçons de vie","destin":"2 phrases sur le potentiel et le destin de cette âme"}`
+      );
+      try {
+        const d = JSON.parse(raw.replace(/```json|```/g,"").trim());
+        const secs = [
+          { icon: profile.zodiac.symbol, title: `Soleil en ${profile.zodiac.name}`, text: d.soleil },
+        ];
+        if (d.lune) secs.push({ icon: "🌙", title: `Lune en ${profile.moonSign?.name || ""}`, text: d.lune });
+        if (d.ascendant) secs.push({ icon: "⬆", title: `Ascendant ${profile.ascendant?.name || ""}`, text: d.ascendant });
+        secs.push(
+          { icon: "🌊", title: `Élément ${profile.zodiac.element}`, text: d.element },
+          { icon: "☸", title: "Forces Karmiques", text: d.karma },
+          { icon: "🌌", title: "Destin & Potentiel", text: d.destin },
+        );
+        setSections(secs);
+      } catch { setSections([{ icon: "🌌", title: "Thème", text: raw }]); }
+      setLoading(false);
+    })();
+  }, []);
+  return (
+    <div className="section-animate">
+      <div className="reading-box">
+        <div className="reading-title"><span className="reading-title-icon">🌌</span> Thème Astral — {profile.zodiac.name} {profile.zodiac.symbol}</div>
+        <SectionedReading sections={sections} loading={loading} loadingText="Lecture du thème natal" />
+      </div>
+      <div className="reading-box" style={{ borderColor: "rgba(201,168,76,0.15)" }}>
+        <div className="reading-title"><span>✨</span> Votre Profil</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.8rem", marginTop: "0.5rem" }}>
+          {[
+            { label: "Soleil", value: `${profile.zodiac.name} ${profile.zodiac.symbol}` },
+            { label: "Lune", value: profile.moonSign ? `${profile.moonSign.name} ${profile.moonSign.symbol}` : "—" },
+            { label: "Ascendant", value: profile.ascendant ? `${profile.ascendant.name} ${profile.ascendant.symbol}` : "Non calculé" },
+            { label: "Élément", value: profile.zodiac.element },
+            { label: "Période", value: profile.zodiac.dates },
+            { label: "Chemin de vie", value: `Nombre ${profile.numerology}` },
+          ].map(({ label, value }) => (
+            <div key={label} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(201,168,76,0.15)", borderRadius: "8px", padding: "0.8rem" }}>
+              <div style={{ fontFamily: "'Cinzel', serif", fontSize: "0.7rem", color: "var(--gold-dim)", letterSpacing: "0.1em", marginBottom: "0.3rem", textTransform: "uppercase" }}>{label}</div>
+              <div style={{ fontStyle: "italic", color: "var(--text)" }}>{value}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="premium-overlay">
+        <div className="reading-box premium-blur">
+          <div className="reading-title"><span>🪐</span> Thème Natal Complet</div>
+          <p className="reading-text">Votre Lune, Ascendant, Vénus et Mars révèlent une vie intérieure d'une richesse…</p>
+        </div>
+        <div className="premium-lock">
+          <div className="lock-icon">🪐</div>
+          <div className="lock-title">Thème Natal Complet</div>
+          <div className="lock-text">Ascendant, Lune, Vénus, Mars — votre carte du ciel avec interprétations</div>
+          <button className="btn-unlock">Révéler mon Thème — 12,99€</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ─── PRÉNOM TAB ───────────────────────────────────────────────────────────────
+function PrenomTab({ profile }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const loaded = useRef(false);
+
+  useEffect(() => {
+    if (loaded.current) return;
+    loaded.current = true;
+    (async () => {
+      const raw = await callClaude(
+        `Analyse le prénom "${profile.name}" de façon mystique et étymologique. Réponds UNIQUEMENT en JSON valide, sans markdown, sans backticks, avec exactement ces clés :
+{
+  "origine": "langue/culture d'origine en 1-2 mots",
+  "etymologie": "signification étymologique en 1 phrase courte",
+  "vibration": "chiffre de 1 à 9 représentant la vibration numérologique du prénom (somme des lettres A=1...Z=26 réduite)",
+  "energie": "1 mot résumant l'énergie du prénom",
+  "personnalite": "2-3 phrases poétiques sur la personnalité portée par ce prénom",
+  "chemin": "2-3 phrases sur le destin et la mission de vie liés à ce prénom",
+  "compatibilite": "2 phrases sur la compatibilité de ce prénom avec le signe ${profile.zodiac.name} et le chemin de vie ${profile.numerology}",
+  "celebres": ["prénom célèbre 1", "prénom célèbre 2", "prénom célèbre 3"],
+  "pierres": ["pierre 1", "pierre 2"],
+  "couleur": "une couleur associée au prénom",
+  "planete": "une planète associée"
+}`
+      );
+      try {
+        const clean = raw.replace(/```json|```/g, "").trim();
+        setData(JSON.parse(clean));
+      } catch {
+        setData({ error: raw });
+      }
+      setLoading(false);
+    })();
+  }, []);
+
+  if (loading) return (
+    <div className="section-animate">
+      <div className="reading-box"><LoadingOracle text={`Séraphiel dévoile les mystères du prénom ${profile.name}`} /></div>
+    </div>
+  );
+
+  if (!data || data.error) return (
+    <div className="section-animate">
+      <div className="reading-box"><p className="reading-text">Les vibrations de votre prénom sont trop subtiles pour être captées en ce moment… Réessayez.</p></div>
+    </div>
+  );
+
+  return (
+    <div className="section-animate">
+      {/* Hero du prénom */}
+      <div className="reading-box" style={{ textAlign: "center", position: "relative", overflow: "hidden" }}>
+        <div style={{
+          position: "absolute", inset: 0,
+          background: "radial-gradient(ellipse at center top, rgba(201,168,76,0.07), transparent 60%)",
+          pointerEvents: "none"
+        }} />
+        <div style={{ fontFamily: "'Cinzel', serif", fontSize: "0.75rem", letterSpacing: "0.3em", color: "var(--gold-dim)", textTransform: "uppercase", marginBottom: "0.8rem" }}>
+          ✦ Révélation du Prénom ✦
+        </div>
+        <div style={{
+          fontFamily: "'Cinzel Decorative', serif",
+          fontSize: "clamp(2.5rem, 8vw, 4.5rem)",
+          background: "linear-gradient(135deg, var(--gold-dim), var(--gold-light), var(--gold-dim))",
+          WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text",
+          lineHeight: 1.1, letterSpacing: "0.05em", marginBottom: "0.5rem",
+          filter: "drop-shadow(0 0 30px rgba(201,168,76,0.2))"
+        }}>
+          {profile.name}
+        </div>
+        <div style={{ fontFamily: "'Cinzel', serif", fontSize: "0.8rem", color: "var(--text-dim)", letterSpacing: "0.2em", marginBottom: "1.5rem" }}>
+          {data.origine} · {data.etymologie}
+        </div>
+
+        {/* Badges */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.6rem", justifyContent: "center", marginBottom: "1.2rem" }}>
+          {[
+            { icon: "⚡", label: "Vibration", val: data.vibration },
+            { icon: "✨", label: "Énergie", val: data.energie },
+            { icon: "🪐", label: "Planète", val: data.planete },
+            { icon: "🎨", label: "Couleur", val: data.couleur },
+          ].map(b => (
+            <div key={b.label} style={{
+              background: "rgba(201,168,76,0.08)", border: "1px solid rgba(201,168,76,0.25)",
+              borderRadius: "10px", padding: "0.5rem 1rem", textAlign: "center", minWidth: "90px"
+            }}>
+              <div style={{ fontSize: "1.1rem", marginBottom: "0.2rem" }}>{b.icon}</div>
+              <div style={{ fontFamily: "'Cinzel', serif", fontSize: "0.6rem", color: "var(--gold-dim)", letterSpacing: "0.1em", textTransform: "uppercase" }}>{b.label}</div>
+              <div style={{ fontStyle: "italic", color: "var(--text)", fontSize: "0.9rem", marginTop: "0.1rem" }}>{b.val}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Pierres */}
+        {data.pierres && (
+          <div style={{ display: "flex", gap: "0.5rem", justifyContent: "center", flexWrap: "wrap" }}>
+            {data.pierres.map(p => (
+              <span key={p} style={{
+                background: "rgba(123,94,167,0.2)", border: "1px solid rgba(160,127,212,0.35)",
+                borderRadius: "20px", padding: "0.25rem 0.8rem",
+                fontFamily: "'Cinzel', serif", fontSize: "0.72rem", color: "var(--accent-light)", letterSpacing: "0.05em"
+              }}>💎 {p}</span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Personnalité */}
+      <div className="reading-box">
+        <div className="reading-title"><span className="reading-title-icon">🌟</span> Personnalité & Essence</div>
+        <p className="reading-text">{data.personnalite}</p>
+      </div>
+
+      {/* Chemin de vie du prénom */}
+      <div className="reading-box">
+        <div className="reading-title"><span className="reading-title-icon">🌌</span> Mission de Vie</div>
+        <p className="reading-text">{data.chemin}</p>
+      </div>
+
+      {/* Compatibilité avec le profil */}
+      <div className="reading-box" style={{ borderColor: "rgba(123,94,167,0.3)" }}>
+        <div className="reading-title" style={{ color: "var(--accent-light)" }}>
+          <span>🔗</span> Résonance avec votre Profil Astral
+        </div>
+        <p className="reading-text">{data.compatibilite}</p>
+      </div>
+
+      {/* Célébrités */}
+      {data.celebres && data.celebres.length > 0 && (
+        <div className="reading-box" style={{ borderColor: "rgba(201,168,76,0.12)" }}>
+          <div className="reading-title"><span>👑</span> Âmes Célèbres portant ce Prénom</div>
+          <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", marginTop: "0.3rem" }}>
+            {data.celebres.map(c => (
+              <span key={c} style={{
+                background: "rgba(201,168,76,0.07)", border: "1px solid rgba(201,168,76,0.2)",
+                borderRadius: "8px", padding: "0.4rem 0.9rem",
+                fontStyle: "italic", color: "var(--text)", fontSize: "0.95rem"
+              }}>{c}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Premium */}
+      <div className="premium-overlay">
+        <div className="reading-box premium-blur">
+          <div className="reading-title"><span>📜</span> Analyse Complète du Prénom</div>
+          <p className="reading-text">Votre prénom en hébreu ancien révèle une connexion directe avec l'archange Séraphiel…</p>
+        </div>
+        <div className="premium-lock">
+          <div className="lock-icon">📜</div>
+          <div className="lock-title">Rapport Complet</div>
+          <div className="lock-text">Analyse kabbalistique, prénom en différentes langues sacrées, rapport PDF de 3 pages</div>
+          <button className="btn-unlock">Obtenir mon Rapport — 5,99€</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── MAIN APP ─────────────────────────────────────────────────────────────────
+const TABS = [
+  { id: "horoscope", label: "Horoscope" },
+  { id: "prenom", label: "Prénom" },
+  { id: "tarot", label: "Tarot" },
+  { id: "oracle", label: "Oracle" },
+  { id: "numerologie", label: "Numérologie" },
+  { id: "theme", label: "Thème Astral" },
+];
+
+function App() {
+  const [profile, setProfile] = useState(null);
+  const [form, setForm] = useState({ name: "", day: "", month: "", year: "", hour: "", minute: "", city: "" });
+  const [tab, setTab] = useState("horoscope");
+  const [error, setError] = useState("");
+
+  // ── Notification scheduler: vérifie toutes les minutes si c'est l'heure d'envoyer ──
+  useEffect(() => {
+    const checkNotif = () => {
+      if (typeof window === "undefined" || !("Notification" in window)) return;
+      if (window.Notification.permission !== "granted") return;
+      try {
+        const lsKeys = (() => { try { return Object.keys(localStorage); } catch { return []; } })();
+        const allKeys = [...new Set([...lsKeys, ...Object.keys(memCache)])].filter(k => k.startsWith("seraphiel_notif_"));
+        allKeys.forEach(key => {
+          try {
+            const data = JSON.parse(localStorage.getItem(key));
+            if (!data) return;
+            const now = new Date();
+            const sentKey = `seraphiel_sent_${data.name}_${now.getFullYear()}-${now.getMonth()+1}-${now.getDate()}`;
+            if (localStorage.getItem(sentKey)) return;
+            if (now.getHours() === data.hour && now.getMinutes() === data.minute) {
+              try {
+                new window.Notification(`✦ Séraphiel — ${data.name}`, {
+                  body: `Votre horoscope du jour est prêt, ${data.zodiac}. Les astres ont des révélations pour vous.`,
+                });
+              } catch {}
+              localStorage.setItem(sentKey, "1");
+            }
+          } catch {}
+        });
+      } catch {}
+    };
+    checkNotif();
+    const interval = setInterval(checkNotif, 60000); // vérifie chaque minute
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleSubmit = () => {
+    const { name, day, month, year } = form;
+    if (!name.trim() || !day || !month || !year) {
+      setError("Veuillez remplir tous les champs pour que l'oracle vous révèle votre destin."); return;
+    }
+    const d = parseInt(day), m = parseInt(month), y = parseInt(year);
+    if (d < 1 || d > 31 || m < 1 || m > 12 || y < 1900 || y > 2025) {
+      setError("La date semble incorrecte. L'univers ne reconnaît pas cette naissance."); return;
+    }
+    const birthdate = `${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}/${y}`;
+    const zodiac = getZodiac(d, m);
+    const isoDate = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    const numerology = getNumerology(isoDate.replace(/-/g, ""));
+    const h = form.hour ? parseInt(form.hour) : null;
+    const min = form.minute ? parseInt(form.minute) : null;
+    const moonSign = getMoonSign(d, m, y);
+    const ascendant = (h !== null && min !== null) ? getAscendant(d, m, h, min, form.city) : null;
+    setProfile({ name: name.trim(), birthdate, zodiac, numerology, moonSign, ascendant, birthHour: form.hour, birthMinute: form.minute, birthCity: form.city });
+    setError("");
+  };
+
+  return (
+    <>
+      <style>{css}</style>
+      <Stars />
+      <div className="nebula nebula-1" />
+      <div className="nebula nebula-2" />
+      <div className="nebula nebula-3" />
+      <div className="app">
+        <header className="header">
+          <div className="header-ornament">· ✦ · ✦ · ✦ ·</div>
+          <h1>Séraphiel</h1>
+          <div className="header-sub">Oracle des Étoiles &amp; des Âmes</div>
+          <div className="divider">
+            <div className="divider-line" />
+            <div className="divider-symbol">☽</div>
+            <div className="divider-line" />
+          </div>
+        </header>
+
+        {!profile ? (
+          <div className="onboarding">
+            <div className="glass-card">
+              <div className="card-title">Votre Portail Céleste</div>
+              <div className="card-subtitle">Laissez les astres dévoiler ce que l'univers vous réserve</div>
+              <div className="form-row">
+                <div className="field-group" style={{ gridColumn: "1 / -1" }}>
+                  <label className="field-label">Votre Prénom</label>
+                  <input className="mystic-input" placeholder="Entrez votre prénom" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+                </div>
+              </div>
+              <div style={{ marginBottom: "0.5rem" }}>
+                <label className="field-label" style={{ display: "block", marginBottom: "0.5rem" }}>Date de Naissance</label>
+                <div className="form-row">
+                  <input className="mystic-input" placeholder="Jour (ex: 14)" type="number" min="1" max="31" value={form.day} onChange={(e) => setForm({ ...form, day: e.target.value })} />
+                  <input className="mystic-input" placeholder="Mois (ex: 7)" type="number" min="1" max="12" value={form.month} onChange={(e) => setForm({ ...form, month: e.target.value })} />
+                  <input className="mystic-input" placeholder="Année (ex: 1990)" type="number" min="1900" max="2025" value={form.year} onChange={(e) => setForm({ ...form, year: e.target.value })} style={{ gridColumn: "1 / -1" }} />
+                </div>
+              </div>
+              <div style={{ marginBottom: "1rem", paddingTop: "0.5rem", borderTop: "1px solid rgba(201,168,76,0.1)" }}>
+                <label className="field-label" style={{ display: "block", marginBottom: "0.5rem" }}>
+                  ☽ Heure de Naissance <span style={{ color: "var(--text-dim)", fontStyle: "italic", textTransform: "none", fontSize: "0.7rem" }}>(optionnel — pour l'ascendant)</span>
+                </label>
+                <div className="form-row">
+                  <input className="mystic-input" placeholder="Heure (ex: 14)" type="number" min="0" max="23" value={form.hour} onChange={(e) => setForm({ ...form, hour: e.target.value })} />
+                  <input className="mystic-input" placeholder="Minutes (ex: 30)" type="number" min="0" max="59" value={form.minute} onChange={(e) => setForm({ ...form, minute: e.target.value })} />
+                </div>
+              </div>
+              <div style={{ marginBottom: "1rem" }}>
+                <label className="field-label" style={{ display: "block", marginBottom: "0.5rem" }}>
+                  🌍 Lieu de Naissance <span style={{ color: "var(--text-dim)", fontStyle: "italic", textTransform: "none", fontSize: "0.7rem" }}>(optionnel)</span>
+                </label>
+                <input className="mystic-input" placeholder="Ville (ex: Paris, Lyon...)" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} />
+              </div>
+              {error && <p style={{ color: "#c06080", fontStyle: "italic", fontSize: "0.9rem", marginTop: "0.5rem" }}>{error}</p>}
+              <button className="btn-primary" onClick={handleSubmit}>✦ &nbsp; Ouvrir mon Portail Céleste</button>
+            </div>
+            <p style={{ textAlign: "center", color: "var(--text-dim)", fontStyle: "italic", fontSize: "0.85rem", marginTop: "1.5rem", opacity: 0.6 }}>
+              Séraphiel — à des fins de divertissement spirituel uniquement
+            </p>
+          </div>
+        ) : (
+          <div>
+            <div className="profile-banner">
+              <div className="zodiac-symbol-big">{profile.zodiac.symbol}</div>
+              <div>
+                <div className="profile-name">{profile.name}</div>
+                <div className="profile-sign">{profile.zodiac.name} · né(e) le {profile.birthdate}</div>
+                <div className="profile-tags">
+                  <span className="tag">✦ {profile.zodiac.element}</span>
+                  <span className="tag">☽ Chemin {profile.numerology}</span>
+                  {profile.moonSign && <span className="tag">🌙 Lune {profile.moonSign.name}</span>}
+                  {profile.ascendant && <span className="tag">↑ Asc. {profile.ascendant.name}</span>}
+                  <button onClick={() => setProfile(null)} style={{ background: "none", border: "1px solid rgba(201,168,76,0.2)", borderRadius: "20px", padding: "0.2rem 0.7rem", fontSize: "0.78rem", fontFamily: "'Cinzel', serif", color: "var(--text-dim)", cursor: "pointer", letterSpacing: "0.05em" }}>
+                    ↩ Changer
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div className="tabs">
+              {TABS.map((t) => (
+                <button key={t.id} className={`tab-btn ${tab === t.id ? "active" : ""}`} onClick={() => setTab(t.id)}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            {tab === "horoscope" && <HoroscopeTab profile={profile} key={profile.name} />}
+            {tab === "prenom" && <PrenomTab profile={profile} key={profile.name} />}
+            {tab === "tarot" && <TarotTab profile={profile} key={profile.name} />}
+            {tab === "oracle" && <OracleTab profile={profile} key={profile.name} />}
+            {tab === "numerologie" && <NumerologyTab profile={profile} key={profile.name} />}
+            {tab === "theme" && <ThemeTab profile={profile} key={profile.name} />}
+          </div>
+        )}
+
+        <footer className="footer">
+          <p>Séraphiel est un oracle de divertissement spirituel · Les lectures sont générées par intelligence artificielle</p>
+          <p style={{ marginTop: "0.3rem" }}>Elles ne constituent pas des conseils médicaux, psychologiques ou financiers</p>
+        </footer>
+      </div>
+    </>
+  );
+}
+
+
+    // Montage de l'app
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+
+
+  <script>
+    // ── Service Worker inline (enregistré depuis un blob) ──
+    const swCode = `
+const CACHE = "seraphiel-v1";
+
+self.addEventListener("install", e => {
+  self.skipWaiting();
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(["/"]).catch(()=>{})));
+});
+
+self.addEventListener("activate", e => {
+  e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))));
+  self.clients.claim();
+});
+
+self.addEventListener("fetch", e => {
+  if (e.request.url.includes("anthropic.com") || e.request.url.includes("unpkg.com") || e.request.url.includes("googleapis.com")) return;
+  e.respondWith(
+    fetch(e.request).then(r => {
+      if (e.request.method === "GET") {
+        const clone = r.clone();
+        caches.open(CACHE).then(c => c.put(e.request, clone));
+      }
+      return r;
+    }).catch(() => caches.match(e.request))
+  );
+});
+
+self.addEventListener("message", e => {
+  if (e.data && e.data.type === "CHECK_NOTIF") checkNotif();
+});
+
+async function checkNotif() {
+  if (!self.registration || !self.registration.showNotification) return;
+  try {
+    const cache = await caches.open("seraphiel-notif");
+    const keys = await cache.keys();
+    const now = new Date();
+    const todayKey = now.getFullYear()+"-"+(now.getMonth()+1)+"-"+now.getDate();
+    for (const req of keys) {
+      if (!req.url.includes("profile_")) continue;
+      try {
+        const res = await cache.match(req);
+        const data = await res.json();
+        const sentKey = "sent_"+data.name+"_"+todayKey;
+        const already = await cache.match(sentKey).catch(()=>null);
+        if (already) continue;
+        if (now.getHours() === data.hour && now.getMinutes() === data.minute) {
+          await self.registration.showNotification("\u2726 S\u00e9raphiel \u2014 " + data.name, {
+            body: "Votre horoscope du jour est pr\u00eat, " + data.zodiac + ". Les astres vous parlent.",
+            vibrate: [200, 100, 200],
+            tag: "daily-" + data.name,
+            data: { url: "/" }
+          });
+          await cache.put(sentKey, new Response(JSON.stringify({sent:true})));
+        }
+      } catch(e2) {}
+    }
+  } catch(e) {}
+}
+
+self.addEventListener("notificationclick", e => {
+  e.notification.close();
+  e.waitUntil(clients.matchAll({type:"window"}).then(list => {
+    for (const c of list) { if ("focus" in c) return c.focus(); }
+    if (clients.openWindow) return clients.openWindow("/");
+  }));
+});
+`;
+
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        try {
+          const blob = new Blob([swCode], { type: 'application/javascript' });
+          const swUrl = URL.createObjectURL(blob);
+          navigator.serviceWorker.register(swUrl, { scope: '/' })
+            .then(reg => {
+              console.log('✦ SW enregistré via blob');
+              // Ping toutes les minutes pour les notifs
+              setInterval(() => {
+                if (navigator.serviceWorker.controller) {
+                  navigator.serviceWorker.controller.postMessage({ type: 'CHECK_NOTIF' });
+                }
+              }, 60000);
+            })
+            .catch(err => {
+              console.warn('SW blob non supporté, tentative fichier...', err);
+              // Fallback: essaie le fichier si disponible
+              navigator.serviceWorker.register('/service-worker.js').catch(()=>{});
+            });
+        } catch(e) {
+          console.warn('SW non disponible:', e);
+        }
+      });
+    }
+  </script>
+</body>
+</html>

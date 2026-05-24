@@ -1,0 +1,15 @@
+{
+  "short_name": "Séraphiel",
+  "name": "Séraphiel — Oracle des Étoiles & des Âmes",
+  "description": "Horoscope personnalisé, tarot, numérologie et oracle mystique",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#05040a",
+  "background_color": "#05040a",
+  "lang": "fr",
+  "icons": [
+    { "src": "https://emojicdn.elk.sh/🔮?style=twitter", "sizes": "192x192", "type": "image/png" },
+    { "src": "https://emojicdn.elk.sh/🔮?style=twitter", "sizes": "512x512", "type": "image/png" }
+  ]
+}
